@@ -2,68 +2,149 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:5001");
+const SIGNALING_SERVER = "http://localhost:5001";
 
 function Room() {
   const { roomId } = useParams();
-  const videoRef = useRef(null);
-  const [stream, setStream] = useState(null);
-  const [cameraOn, setCameraOn] = useState(true);
-  const [micOn, setMicOn] = useState(true);
 
-  useEffect(() => {
-    socket.emit("join-room", roomId);
-    startCamera();
-  }, [roomId]);
+  const socketRef = useRef(null);
+  const peerRef = useRef(null);
+
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+
+  const [stream, setStream] = useState(null);
+  const [isInitiator, setIsInitiator] = useState(false);
+
+  /* ---------- WebRTC ---------- */
+
+  const createPeer = () =>
+    new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+  /* ---------- Camera ---------- */
 
   const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
+    const mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
+    localVideoRef.current.srcObject = mediaStream;
+    setStream(mediaStream);
+  };
+
+  useEffect(() => {
+    startCamera();
+  }, []);
+
+  /* ---------- Socket + Signaling ---------- */
+
+  useEffect(() => {
+    if (!stream) return;
+
+    socketRef.current = io(SIGNALING_SERVER, {
+      transports: ["websocket"]
+    });
+
+    socketRef.current.on("connect", () => {
+      console.log("Connected:", socketRef.current.id);
+    });
+
+    // Backend tells who is initiator
+    socketRef.current.on("room-info", ({ isInitiator }) => {
+      setIsInitiator(isInitiator);
+    });
+
+    socketRef.current.on("user-joined", async () => {
+      if (!isInitiator) return; // 🔥 FIX: only initiator creates offer
+
+      peerRef.current = createPeer();
+      stream.getTracks().forEach(track =>
+        peerRef.current.addTrack(track, stream)
+      );
+
+      peerRef.current.ontrack = e => {
+        remoteVideoRef.current.srcObject = e.streams[0];
+      };
+
+      peerRef.current.onicecandidate = e => {
+        if (e.candidate) {
+          socketRef.current.emit("signal", {
+            roomId,
+            data: { type: "ice", candidate: e.candidate }
+          });
+        }
+      };
+
+      const offer = await peerRef.current.createOffer();
+      await peerRef.current.setLocalDescription(offer);
+
+      socketRef.current.emit("signal", {
+        roomId,
+        data: { type: "offer", offer }
       });
-      videoRef.current.srcObject = mediaStream;
-      setStream(mediaStream);
-    } catch (err) {
-      alert("Camera/Microphone permission denied");
-    }
-  };
+    });
 
-  const toggleCamera = () => {
-    if (!stream) return;
-    const videoTrack = stream.getVideoTracks()[0];
-    videoTrack.enabled = !videoTrack.enabled;
-    setCameraOn(videoTrack.enabled);
-  };
+    socketRef.current.on("signal", async ({ data }) => {
+      // ✅ FIX: correct destructuring
 
-  const toggleMic = () => {
-    if (!stream) return;
-    const audioTrack = stream.getAudioTracks()[0];
-    audioTrack.enabled = !audioTrack.enabled;
-    setMicOn(audioTrack.enabled);
-  };
+      if (data.type === "offer") {
+        peerRef.current = createPeer();
+
+        stream.getTracks().forEach(track =>
+          peerRef.current.addTrack(track, stream)
+        );
+
+        peerRef.current.ontrack = e => {
+          remoteVideoRef.current.srcObject = e.streams[0];
+        };
+
+        peerRef.current.onicecandidate = e => {
+          if (e.candidate) {
+            socketRef.current.emit("signal", {
+              roomId,
+              data: { type: "ice", candidate: e.candidate }
+            });
+          }
+        };
+
+        await peerRef.current.setRemoteDescription(data.offer);
+
+        const answer = await peerRef.current.createAnswer();
+        await peerRef.current.setLocalDescription(answer);
+
+        socketRef.current.emit("signal", {
+          roomId,
+          data: { type: "answer", answer }
+        });
+      }
+
+      if (data.type === "answer") {
+        await peerRef.current.setRemoteDescription(data.answer);
+      }
+
+      if (data.type === "ice") {
+        await peerRef.current.addIceCandidate(data.candidate);
+      }
+    });
+
+    socketRef.current.emit("join-room", roomId);
+
+    return () => socketRef.current.disconnect();
+  }, [stream, roomId, isInitiator]);
+
+  /* ---------- UI ---------- */
 
   return (
-    <div style={{ padding: "30px" }}>
-      <h2>Meeting Room</h2>
-      <p>Room ID: {roomId}</p>
+    <div>
+      <h2>Room: {roomId}</h2>
 
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        style={{ width: "400px", border: "1px solid black" }}
-      />
+      <h3>Local</h3>
+      <video ref={localVideoRef} autoPlay muted width="300" />
 
-      <div style={{ marginTop: "10px" }}>
-        <button onClick={toggleCamera}>
-          {cameraOn ? "Turn Camera OFF" : "Turn Camera ON"}
-        </button>
-
-        <button onClick={toggleMic} style={{ marginLeft: "10px" }}>
-          {micOn ? "Mute Mic" : "Unmute Mic"}
-        </button>
-      </div>
+      <h3>Remote</h3>
+      <video ref={remoteVideoRef} autoPlay width="300" />
     </div>
   );
 }

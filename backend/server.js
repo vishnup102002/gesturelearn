@@ -16,17 +16,32 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-
-  socket.on("join-room", (roomId) => {
-    socket.join(roomId);
-    console.log(`User joined room: ${roomId}`);
+    console.log("User connected:", socket.id);
+  
+    socket.on("join-room", (roomId) => {
+      const clients = io.sockets.adapter.rooms.get(roomId);
+      const numClients = clients ? clients.size : 0;
+    
+      socket.join(roomId);
+    
+      if (numClients === 1) {
+        socket.to(roomId).emit("user-joined");
+      }
+    
+      console.log(`User joined room: ${roomId}`);
+    });
+  
+    socket.on("signal", ({ roomId, data }) => {
+      socket.to(roomId).emit("signal", {
+        sender: socket.id,
+        data
+      });
+    });
+  
+    socket.on("disconnect", () => {
+      console.log("User disconnected:", socket.id);
+    });
   });
-
-  socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
-  });
-});
 
 server.listen(5001, () => {
   console.log("Server running on http://localhost:5001");
