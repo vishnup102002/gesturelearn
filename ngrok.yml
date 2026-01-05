@@ -1,9 +1,0 @@
-version: "2"
-authtoken: 37UCZPp3amCjXIpwGD0eLmYAYeX_3vhYBizoagfbRC5KxK8PE
-tunnels:
-  web_site:
-    proto: http
-    addr: 3000
-  api_server:
-    proto: http
-    addr: 5001
