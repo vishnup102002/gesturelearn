@@ -15,4 +15,5 @@ dist/
 .DS_Store
 
 # IDE
-.vscode/ngrok.yml
+.vscode/
+.ngrok.yml
