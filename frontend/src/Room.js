@@ -6,9 +6,9 @@ import { io } from "socket.io-client";
 // For Localhost testing (Same laptop, two tabs): use "http://localhost:5001"
 // For WiFi testing (Laptop + Phone): use "http://192.168.1.X:5001" (Replace X with your Laptop's IP)
 // REPLACE THIS with the Ngrok link you just copied
-//const SIGNALING_SERVER = "http://localhost:5001"
+const SIGNALING_SERVER = "http://localhost:5001"
 //const SIGNALING_SERVER = "https://maisie-regardant-rachelle.ngrok-free.dev";
-const SIGNALING_SERVER = "/";
+//const SIGNALING_SERVER = "/";
 
 function Room() {
   const { roomId } = useParams();
@@ -25,6 +25,9 @@ function Room() {
   const [pinnedId, setPinnedId] = useState("local");
   const [notify, setNotify] = useState("");
   const [isConnected, setIsConnected] = useState(false); // New connection status
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
 
   // --- Controls ---
   const [isMicOn, setIsMicOn] = useState(true);
@@ -82,7 +85,14 @@ function Room() {
   useEffect(() => {
     const startApp = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        //const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); for normal camera resolution to 640x480 (VGA) 
+        const stream = await navigator.mediaDevices.getUserMedia({ //for 720p
+          video: { 
+            width: { ideal: 1280 }, 
+            height: { ideal: 720 } 
+          }, 
+          audio: true 
+        });
         localStreamRef.current = stream;
         setLocalStream(stream);
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
@@ -165,6 +175,9 @@ function Room() {
                 }
             })
         });
+        socketRef.current.on("chat-message", ({ sender, text }) => {
+          setMessages(prev => [...prev, { sender, text }]);
+      });
 
       } catch (err) {
         console.error("Error starting app:", err);
@@ -205,6 +218,14 @@ function Room() {
     setNotify("Link copied to clipboard!");
     setTimeout(() => setNotify(""), 3000);
   };
+  const sendChat = (e) => {
+    e.preventDefault();
+    if (chatInput.trim()) {
+      socketRef.current.emit("send-message", { roomId, message: chatInput });
+      setChatInput("");
+    }
+  };
+
 
   // --- 4. Main Render ---
   let bigStream = null;
@@ -249,7 +270,35 @@ function Room() {
                 <div style={{color: "white"}}>Waiting for users...</div>
             )}
         </div>
+            {/* Chat Sidebar */}
+        {isChatOpen && (
+            <div style={chatSidebarStyle}>
+                <div style={chatHeaderStyle}>
+                    <h3>Chat</h3>
+                    <button onClick={() => setIsChatOpen(false)} style={closeChatBtnStyle}>×</button>
+                </div>
+                <div style={chatMessagesStyle}>
+                    {messages.map((msg, idx) => {
+                        const isMe = msg.sender === socketRef.current?.id;
+                        const name = isMe ? "You" : `User ${msg.sender.substring(0,4)}`;
+                        return (
+                            <div key={idx} style={{ marginBottom: "10px", textAlign: isMe ? "right" : "left" }}>
+                                <div style={{ fontWeight: "bold", fontSize: "12px", color: "#9aa0a6" }}>{name}</div>
+                                <div style={{ backgroundColor: isMe ? "#00796b" : "#ffffff", padding: "8px", borderRadius: "8px", display: "inline-block", maxWidth: "80%", wordWrap: "break-word" }}>
+                                    {msg.text}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+                <form onSubmit={sendChat} style={chatInputAreaStyle}>
+                    <input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Type a message..." style={chatInputStyle} />
+                    <button type="submit" style={chatSendBtnStyle}>➤</button>
+                </form>
+            </div>
+        )}
 
+  
         {/* Bottom Strip */}
         <div style={stripStyle}>
             {pinnedId !== "local" && (
@@ -277,6 +326,7 @@ function Room() {
         <div style={controlsStyle}>
             <button onClick={toggleMic} style={btnStyle(isMicOn)}>{isMicOn ? "🎤" : "🔇"}</button>
             <button onClick={toggleCam} style={btnStyle(isCamOn)}>{isCamOn ? "📷" : "🚫"}</button>
+            <button onClick={() => setIsChatOpen(!isChatOpen)} style={btnStyle(true)} title="Chat">💬</button>
             <button onClick={copyLink} style={btnStyle(true)} title="Copy Meeting Link">🔗</button>
             <button onClick={() => navigate("/")} style={endBtnStyle}>End Call</button>
         </div>
@@ -330,6 +380,14 @@ const notifyStyle = { position: "absolute", top: "20px", left: "50%", transform:
 const controlsStyle = { height: "70px", backgroundColor: "#1e1e1e", display: "flex", justifyContent: "center", alignItems: "center", gap: "20px", zIndex: 20 };
 const btnStyle = (isOn) => ({ width: "50px", height: "50px", borderRadius: "50%", border: "none", backgroundColor: isOn === true || typeof isOn === "object" ? "#3c4043" : "#ea4335", color: "white", fontSize: "20px", cursor: "pointer", display: "flex", justifyContent: "center", alignItems: "center", transition: "0.2s" });
 const endBtnStyle = { padding: "0 20px", height: "50px", borderRadius: "30px", border: "none", backgroundColor: "#ea4335", color: "white", fontWeight: "bold", cursor: "pointer" };
+// Chat Styles
+const chatSidebarStyle = { position: "absolute", right: 0, top: 0, bottom: "70px", width: "300px", backgroundColor: "#202124", borderLeft: "1px solid #3c4043", display: "flex", flexDirection: "column", zIndex: 50 };
+const chatHeaderStyle = { padding: "15px", borderBottom: "1px solid #3c4043", display: "flex", justifyContent: "space-between", alignItems: "center" };
+const closeChatBtnStyle = { background: "none", border: "none", color: "white", fontSize: "24px", cursor: "pointer" };
+const chatMessagesStyle = { flex: 1, padding: "15px", overflowY: "auto", display: "flex", flexDirection: "column" };
+const chatInputAreaStyle = { padding: "15px", borderTop: "1px solid #3c4043", display: "flex", gap: "10px" };
+const chatInputStyle = { flex: 1, padding: "10px", borderRadius: "20px", border: "none", backgroundColor: "#3c4043", color: "white", outline: "none" };
+const chatSendBtnStyle = { background: "none", border: "none", color: "#8ab4f8", fontSize: "20px", cursor: "pointer" };
 
 // New Status Indicator Style
 const connectionStatusStyle = (isConnected) => ({

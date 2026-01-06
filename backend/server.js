@@ -125,6 +125,11 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("remote-media-update", { sender: socket.id, type, status });
   });
 
+  socket.on("send-message", ({ roomId, message }) => {
+    console.log(`[Chat] Room: ${roomId}, Sender: ${socket.id}, Message: ${message}`);
+    io.to(roomId).emit("chat-message", { sender: socket.id, text: message });
+  });
+
   socket.on("disconnecting", () => {
     socket.rooms.forEach((room) => {
         socket.to(room).emit("user-disconnected", socket.id);
