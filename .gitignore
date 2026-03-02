@@ -16,4 +16,4 @@ dist/
 
 # IDE
 .vscode/
-.ngrok.yml
+ngrok.yml

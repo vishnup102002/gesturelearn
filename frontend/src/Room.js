@@ -1,23 +1,39 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
+import { Hands } from "@mediapipe/hands";
+import "./Room.css";
 
 // --- IMPORTANT: CHANGE THIS TO YOUR IP IF TESTING ON PHONES ---
 // For Localhost testing (Same laptop, two tabs): use "http://localhost:5001"
 // For WiFi testing (Laptop + Phone): use "http://192.168.1.X:5001" (Replace X with your Laptop's IP)
 // REPLACE THIS with the Ngrok link you just copied
-const SIGNALING_SERVER = "http://localhost:5001"
-//const SIGNALING_SERVER = "https://maisie-regardant-rachelle.ngrok-free.dev";
+//const SIGNALING_SERVER = "http://localhost:5001"
+const SIGNALING_SERVER = "https://maisie-regardant-rachelle.ngrok-free.dev";
 //const SIGNALING_SERVER = "/";
 
 function Room() {
   const { roomId } = useParams();
   const navigate = useNavigate();
 
+  const PALETTE_HEIGHT = 40;
+  const COLOR_OPTIONS = ["red", "blue", "green", "white"];
+  const SMOOTHING_ALPHA = 0.3;       // 0–1, higher = less smoothing
+  const MIN_MOVE_PX = 2;             // minimum movement in pixels to draw (lower = smoother line)
+  const MIN_DRAW_INTERVAL_MS = 8;    // cap draw/emit rate (~120 FPS)
+  const INDEX_MARGIN = 0.005;        // tolerance for finger "up" detection (vertical)
+  const DEPTH_MARGIN = 0.02;         // tolerance for finger "forward" detection (depth/z)
+
   const socketRef = useRef(null);
   const peersRef = useRef({}); 
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const gestureCanvasRef = useRef(null);
+  const lastDrawPosRef = useRef(null);
+  const selectedColorRef = useRef("red");
+  const smoothedTipRef = useRef(null);
+  const lastDrawTimeRef = useRef(0);
+  const remoteCanvasRefs = useRef({});
 
   // --- State ---
   const [localStream, setLocalStream] = useState(null);
@@ -28,6 +44,31 @@ function Room() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
+  const [gestureStatus, setGestureStatus] = useState("");
+  const [gestureEnabled, setGestureEnabled] = useState(false);
+  const [selectedColor, setSelectedColor] = useState("red");
+
+  useEffect(() => {
+    selectedColorRef.current = selectedColor;
+  }, [selectedColor]);
+
+  const getRemoteCanvasRef = (id) => {
+    if (!remoteCanvasRefs.current[id]) {
+      remoteCanvasRefs.current[id] = React.createRef();
+    }
+    return remoteCanvasRefs.current[id];
+  };
+
+  const emitGestureEvent = (mode, prevNorm, currNorm) => {
+    if (!socketRef.current || !roomId) return;
+    socketRef.current.emit("gesture-draw", {
+      roomId,
+      mode,
+      color: selectedColorRef.current,
+      prev: prevNorm,
+      curr: currNorm,
+    });
+  };
 
   // --- Controls ---
   const [isMicOn, setIsMicOn] = useState(true);
@@ -175,6 +216,39 @@ function Room() {
                 }
             })
         });
+        socketRef.current.on("gesture-draw", ({ sender, mode, color, prev, curr }) => {
+          const ref = remoteCanvasRefs.current[sender];
+          if (!ref || !ref.current || !curr) return;
+          const canvas = ref.current;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+
+          const width = canvas.clientWidth || canvas.width;
+          const height = canvas.clientHeight || canvas.height;
+          if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+          }
+
+          const x1 = prev ? prev.x * canvas.width : null;
+          const y1 = prev ? prev.y * canvas.height : null;
+          const x2 = curr.x * canvas.width;
+          const y2 = curr.y * canvas.height;
+
+          if (mode === "draw" && prev) {
+            ctx.strokeStyle = color || "red";
+            ctx.lineWidth = 4;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+          } else if (mode === "erase") {
+            const size = 40;
+            ctx.clearRect(x2 - size / 2, y2 - size / 2, size, size);
+          }
+        });
+
         socketRef.current.on("chat-message", ({ sender, text }) => {
           setMessages(prev => [...prev, { sender, text }]);
       });
@@ -192,6 +266,231 @@ function Room() {
     };
     // eslint-disable-next-line
   }, [roomId]); 
+
+  // --- 2b. MediaPipe Hands / Gesture Detection on Local Video ---
+  useEffect(() => {
+    if (!localStream || !gestureEnabled) {
+      setGestureStatus("");
+      lastDrawPosRef.current = null;
+      smoothedTipRef.current = null;
+      lastDrawTimeRef.current = 0;
+      const canvasEl = gestureCanvasRef.current;
+      if (canvasEl) {
+        const ctx = canvasEl.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+      }
+      return;
+    }
+
+    const hands = new Hands({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.5,
+    });
+
+    hands.onResults((results) => {
+      const { image, multiHandLandmarks } = results;
+      const canvasEl = gestureCanvasRef.current;
+      if (!image || !canvasEl) return;
+
+      const ctx = canvasEl.getContext("2d");
+      if (!ctx) return;
+
+      // Resize canvas to fully match the visible video/container size
+      const parent = canvasEl.parentElement;
+      const targetWidth =
+        (parent && parent.clientWidth) ||
+        canvasEl.clientWidth ||
+        canvasEl.width ||
+        image.width;
+      const targetHeight =
+        (parent && parent.clientHeight) ||
+        canvasEl.clientHeight ||
+        canvasEl.height ||
+        image.height;
+
+      if (canvasEl.width !== targetWidth || canvasEl.height !== targetHeight) {
+        canvasEl.width = targetWidth;
+        canvasEl.height = targetHeight;
+      }
+
+      // Clear palette area and redraw color options
+      ctx.clearRect(0, 0, canvasEl.width, PALETTE_HEIGHT);
+
+      const segmentWidth = canvasEl.width / COLOR_OPTIONS.length;
+
+      COLOR_OPTIONS.forEach((color, idx) => {
+        const x0 = idx * segmentWidth;
+        const padding = 6;
+        const rectX = x0 + padding;
+        const rectY = 8;
+        const rectW = segmentWidth - padding * 2;
+        const rectH = PALETTE_HEIGHT - padding * 2;
+
+        ctx.fillStyle = color;
+        ctx.fillRect(rectX, rectY, rectW, rectH);
+
+        if (selectedColorRef.current === color) {
+          ctx.strokeStyle = "yellow";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(rectX - 2, rectY - 2, rectW + 4, rectH + 4);
+        }
+      });
+
+      if (!multiHandLandmarks || multiHandLandmarks.length === 0) {
+        setGestureStatus("No hand");
+        lastDrawPosRef.current = null;
+        return;
+      }
+
+      const landmarks = multiHandLandmarks[0];
+
+      const indexTip = landmarks[8];
+      const indexPip = landmarks[6];
+      const middleTip = landmarks[12];
+      const middlePip = landmarks[10];
+
+      // Finger considered "up" if either clearly above its PIP joint (y)
+      // OR clearly closer to camera (z). We keep this only for erase,
+      // and default to drawing whenever a hand is present.
+      const middleUpY = middleTip.y < middlePip.y - INDEX_MARGIN;
+      const middleUpZ = middleTip.z < middlePip.z - DEPTH_MARGIN;
+      const middleUp = middleUpY || middleUpZ;
+
+      let mode = "draw";
+      if (middleUp) {
+        mode = "erase";
+      }
+
+      // --- Smoothing fingertip position ---
+      const rawX = indexTip.x;
+      const rawY = indexTip.y;
+
+      if (!smoothedTipRef.current) {
+        smoothedTipRef.current = { x: rawX, y: rawY };
+      } else {
+        const prev = smoothedTipRef.current;
+        smoothedTipRef.current = {
+          x: SMOOTHING_ALPHA * rawX + (1 - SMOOTHING_ALPHA) * prev.x,
+          y: SMOOTHING_ALPHA * rawY + (1 - SMOOTHING_ALPHA) * prev.y,
+        };
+      }
+
+      const smooth = smoothedTipRef.current;
+      // Normalized coordinates in camera space (0–1, not mirrored)
+      const normX = smooth.x;
+      const normY = smooth.y;
+
+      // Local display coordinates (mirrored horizontally for self‑view)
+      const xLocal = (1 - normX) * canvasEl.width;
+      const yLocal = normY * canvasEl.height;
+
+      if (mode === "draw" && yLocal < PALETTE_HEIGHT) {
+        // Color selection area
+        const colorIndex = Math.min(
+          COLOR_OPTIONS.length - 1,
+          Math.max(0, Math.floor(xLocal / segmentWidth))
+        );
+        const newColor = COLOR_OPTIONS[colorIndex];
+        if (selectedColorRef.current !== newColor) {
+          selectedColorRef.current = newColor;
+          setSelectedColor(newColor);
+          setGestureStatus(`Color: ${newColor}`);
+        }
+        lastDrawPosRef.current = null;
+        return;
+      }
+
+      if (mode === "draw") {
+        setGestureStatus(`Drawing: ${selectedColorRef.current}`);
+        const prev = lastDrawPosRef.current;
+        if (prev) {
+          // Distance threshold in pixels (to avoid jittery tiny segments)
+          const dxPx = (normX - prev.x) * canvasEl.width;
+          const dyPx = (normY - prev.y) * canvasEl.height;
+          const distSq = dxPx * dxPx + dyPx * dyPx;
+          if (distSq >= MIN_MOVE_PX * MIN_MOVE_PX) {
+            const now = performance.now ? performance.now() : Date.now();
+            if (now - (lastDrawTimeRef.current || 0) >= MIN_DRAW_INTERVAL_MS) {
+              lastDrawTimeRef.current = now;
+
+              const prevXLocal = (1 - prev.x) * canvasEl.width;
+              const prevYLocal = prev.y * canvasEl.height;
+              ctx.strokeStyle = selectedColorRef.current;
+              ctx.lineWidth = 4;
+              ctx.lineCap = "round";
+              ctx.beginPath();
+              ctx.moveTo(prevXLocal, prevYLocal);
+              ctx.lineTo(xLocal, yLocal);
+              ctx.stroke();
+
+              // Broadcast un-mirrored normalized coords
+              emitGestureEvent("draw", prev, { x: normX, y: normY });
+            }
+          }
+        }
+        // Store last position in un-mirrored normalized space
+        lastDrawPosRef.current = { x: normX, y: normY };
+      } else if (mode === "erase") {
+        setGestureStatus("Erasing");
+        const size = 40;
+        ctx.clearRect(xLocal - size / 2, yLocal - size / 2, size, size);
+        // Broadcast erase in un-mirrored normalized space
+        emitGestureEvent("erase", null, { x: normX, y: normY });
+        lastDrawPosRef.current = null;
+      } else {
+        setGestureStatus("Gesture mode on");
+        lastDrawPosRef.current = null;
+      }
+    });
+
+    let animationFrameId;
+    let isCancelled = false;
+
+    const processFrame = async () => {
+      if (isCancelled) return;
+
+      const videoEl = localVideoRef.current;
+      const canvasEl = gestureCanvasRef.current;
+
+      if (
+        videoEl &&
+        canvasEl &&
+        videoEl.readyState >= 2 && // HAVE_CURRENT_DATA
+        videoEl.videoWidth > 0 &&
+        videoEl.videoHeight > 0
+      ) {
+        try {
+          await hands.send({ image: videoEl });
+        } catch (e) {
+          // Swallow occasional processing errors to avoid breaking loop
+        }
+      }
+      animationFrameId = requestAnimationFrame(processFrame);
+    };
+
+    animationFrameId = requestAnimationFrame(processFrame);
+
+    return () => {
+      isCancelled = true;
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      hands.close();
+      setGestureStatus("");
+      const canvasEl = gestureCanvasRef.current;
+      if (canvasEl) {
+        const ctx = canvasEl.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+        }
+      }
+    };
+  }, [localStream, gestureEnabled]);
 
   // --- 3. Controls ---
   const toggleMic = () => {
@@ -250,7 +549,7 @@ function Room() {
   }
 
   return (
-    <div style={containerStyle}>
+    <div className="room-container" style={containerStyle}>
         
         {/* Connection Status Indicator */}
         <div style={connectionStatusStyle(isConnected)}>
@@ -260,19 +559,41 @@ function Room() {
         {notify && <div style={notifyStyle}>🔔 {notify}</div>}
 
         {/* Big Screen */}
-        <div style={mainAreaStyle}>
+        <div className="room-main" style={mainAreaStyle}>
             {bigStream ? (
-                <VideoCard 
-                    stream={bigStream} isMicOn={bigIsMic} isCamOn={bigIsCam} 
-                    name={bigName} isMirror={bigMirror} isBig={true} 
-                />
+                <div className="room-main-inner">
+                    <VideoCard 
+                        stream={bigStream}
+                        isMicOn={bigIsMic}
+                        isCamOn={bigIsCam}
+                        name={bigName}
+                        isMirror={bigMirror}
+                        isBig={true}
+                        videoRef={pinnedId === "local" ? localVideoRef : null}
+                        overlayRef={pinnedId !== "local" ? getRemoteCanvasRef(pinnedId) : null}
+                    />
+                    {/* Only show gesture overlay for local pinned video */}
+                    {pinnedId === "local" && gestureEnabled && (
+                        <>
+                            <canvas
+                                ref={gestureCanvasRef}
+                                style={gestureCanvasStyle}
+                            />
+                            {gestureStatus && (
+                                <div style={gestureBadgeStyle}>
+                                    ✋ {gestureStatus}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
             ) : (
                 <div style={{color: "white"}}>Waiting for users...</div>
             )}
         </div>
             {/* Chat Sidebar */}
         {isChatOpen && (
-            <div style={chatSidebarStyle}>
+            <div className="room-chat" style={chatSidebarStyle}>
                 <div style={chatHeaderStyle}>
                     <h3>Chat</h3>
                     <button onClick={() => setIsChatOpen(false)} style={closeChatBtnStyle}>×</button>
@@ -300,11 +621,15 @@ function Room() {
 
   
         {/* Bottom Strip */}
-        <div style={stripStyle}>
+        <div className="room-strip" style={stripStyle}>
             {pinnedId !== "local" && (
                 <VideoCard 
-                    stream={localStream} isMicOn={isMicOn} isCamOn={isCamOn} 
-                    name="You" isMirror={true} isBig={false} 
+                    stream={localStream}
+                    isMicOn={isMicOn}
+                    isCamOn={isCamOn}
+                    name="You"
+                    isMirror={true}
+                    isBig={false}
                     onClick={() => setPinnedId("local")}
                 />
             )}
@@ -314,18 +639,30 @@ function Room() {
                 return (
                     <VideoCard 
                         key={id}
-                        stream={user.stream} isMicOn={user.isMicOn} isCamOn={user.isCamOn} 
-                        name={`User ${id.substring(0,4)}`} isMirror={false} isBig={false} 
+                        stream={user.stream}
+                        isMicOn={user.isMicOn}
+                        isCamOn={user.isCamOn}
+                        name={`User ${id.substring(0,4)}`}
+                        isMirror={false}
+                        isBig={false}
                         onClick={() => setPinnedId(id)}
+                        overlayRef={getRemoteCanvasRef(id)}
                     />
                 )
             })}
         </div>
 
         {/* Controls Bar */}
-        <div style={controlsStyle}>
+        <div className="room-controls" style={controlsStyle}>
             <button onClick={toggleMic} style={btnStyle(isMicOn)}>{isMicOn ? "🎤" : "🔇"}</button>
             <button onClick={toggleCam} style={btnStyle(isCamOn)}>{isCamOn ? "📷" : "🚫"}</button>
+            <button
+              onClick={() => setGestureEnabled(prev => !prev)}
+              style={btnStyle(gestureEnabled)}
+              title="Toggle gesture drawing"
+            >
+              ✋
+            </button>
             <button onClick={() => setIsChatOpen(!isChatOpen)} style={btnStyle(true)} title="Chat">💬</button>
             <button onClick={copyLink} style={btnStyle(true)} title="Copy Meeting Link">🔗</button>
             <button onClick={() => navigate("/")} style={endBtnStyle}>End Call</button>
@@ -335,8 +672,9 @@ function Room() {
 }
 
 // --- Video Card ---
-const VideoCard = ({ stream, isMicOn, isCamOn, name, isMirror, onClick, isBig }) => {
-  const vidRef = useRef(null);
+const VideoCard = ({ stream, isMicOn, isCamOn, name, isMirror, onClick, isBig, videoRef, overlayRef }) => {
+  const internalRef = useRef(null);
+  const vidRef = videoRef || internalRef;
   useEffect(() => {
       if (vidRef.current && stream) vidRef.current.srcObject = stream;
   }, [stream]);
@@ -355,10 +693,27 @@ const VideoCard = ({ stream, isMicOn, isCamOn, name, isMirror, onClick, isBig })
                   {!isMicOn && <div style={muteBadgeStyle}>🔇</div>}
                </div>
           ) : (
-              <video ref={vidRef} autoPlay muted={isMirror} playsInline style={{
-                  width: "100%", height: "100%", objectFit: "cover",
-                  transform: isMirror ? "scaleX(-1)" : "none"
-              }} />
+              <>
+                <video
+                  ref={vidRef}
+                  autoPlay
+                  muted={isMirror}
+                  playsInline
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain", // avoid cropping so coords stay in sync
+                    transform: isMirror ? "scaleX(-1)" : "none",
+                    backgroundColor: "black",
+                  }}
+                />
+                {overlayRef && (
+                  <canvas
+                    ref={overlayRef}
+                    style={gestureCanvasStyle}
+                  />
+                )}
+              </>
           )}
           <div style={nameTagStyle}>
               {name} {!isMicOn && "🔇"}
@@ -402,5 +757,26 @@ const connectionStatusStyle = (isConnected) => ({
     fontWeight: "bold",
     zIndex: 100
 });
+
+const gestureCanvasStyle = {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  width: "100%",
+  height: "100%",
+  pointerEvents: "none",
+};
+
+const gestureBadgeStyle = {
+  position: "absolute",
+  top: "16px",
+  right: "16px",
+  padding: "6px 12px",
+  borderRadius: "16px",
+  backgroundColor: "rgba(0, 0, 0, 0.6)",
+  color: "white",
+  fontSize: "12px",
+  fontWeight: "bold",
+};
 
 export default Room;
