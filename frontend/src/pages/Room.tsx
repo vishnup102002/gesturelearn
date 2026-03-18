@@ -384,68 +384,69 @@ function Room() {
       if (!multiHandLandmarks?.length) {
         setGestureStatusThrottled("No hand", { minIntervalMs: 350 });
         lastDrawPosRef.current = null;
+        smoothedTipRef.current = null;
         return;
       }
 
       const landmarks = multiHandLandmarks[0];
 
-      const fingerUp = (tipIdx, pipIdx) => {
-        const tip = landmarks[tipIdx], pip = landmarks[pipIdx];
-        return (tip.y < pip.y - FINGER_MARGIN) || (tip.z < pip.z - DEPTH_MARGIN);
+      // Helper: Strict finger up check
+      const isFingerUp = (tipIdx, pipIdx, mcpIdx) => {
+        return landmarks[tipIdx].y < landmarks[pipIdx].y && landmarks[pipIdx].y < landmarks[mcpIdx].y;
       };
 
-      const indexUp = fingerUp(8, 6);
-      const middleUp = fingerUp(12, 10);
-      const ringUp = fingerUp(16, 14);
-      const pinkyUp = fingerUp(20, 18);
+      const indexUp = isFingerUp(8, 6, 5);
+      const middleUp = isFingerUp(12, 10, 9);
+      const ringUp = isFingerUp(16, 14, 13);
+      const pinkyUp = isFingerUp(20, 18, 17);
+      
       const thumbTip = landmarks[4];
-      const thumbIp = landmarks[3];
       const indexTip = landmarks[8];
-      const wrist = landmarks[0];
-      const thumbUp = Math.abs(thumbTip.x - wrist.x) > Math.abs(thumbIp.x - wrist.x) + 0.02;
 
-      const allUp = indexUp && middleUp && ringUp && pinkyUp && thumbUp;
-      const allDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
-
-      // 1. Calculate the 3D Distance (including Z-depth to prevent fake pinches)
+      // 1. Precise 3D Distance for Pinch
       const dx = indexTip.x - thumbTip.x;
       const dy = indexTip.y - thumbTip.y;
       const dz = indexTip.z - thumbTip.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      // 2. Hysteresis Logic (The "Anti-Jitter" Secret)
-      const PINCH_START_THRESHOLD = 0.04;
-      const PINCH_STOP_THRESHOLD = 0.07;
-      const isCurrentlyDrawing = confirmedGestureRef.current === "draw";
+      // 2. State Hysteresis (Prevents flickering)
+      const PINCH_START = 0.035; // Closer to start
+      const PINCH_STOP = 0.065;  // Further to stop
+      const currentlyDrawing = confirmedGestureRef.current === "draw";
+      const isPinching = currentlyDrawing ? dist < PINCH_STOP : dist < PINCH_START;
 
-      let isPinch = false;
-      if (isCurrentlyDrawing) {
-        // If already drawing, stay drawing until fingers are clearly apart
-        isPinch = dist < PINCH_STOP_THRESHOLD;
-      } else {
-        // If not drawing, only start when fingers are very close
-        isPinch = dist < PINCH_START_THRESHOLD;
-      }
-
-      // 4. Mode Selection
+      // 3. Strict Mode Selection
       let rawGesture = "idle";
-      if (allDown) {
+      
+      const allFingersDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
+      const allFingersUp = indexUp && middleUp && ringUp && pinkyUp;
+
+      if (allFingersDown) {
         rawGesture = "fist";
-      } else if (allUp) {
-        rawGesture = "erase"; // Flat Palm
-      } else if (indexUp && middleUp && !ringUp && !pinkyUp) {
-        rawGesture = "select"; // Two fingers
-      } else if (isPinch) {
-        rawGesture = "draw"; // Explicitly pinch to draw
-      } else if (indexUp && dist > 0.08) { 
-        // Only hover if the index is up AND not near the thumb
+      } else if (allFingersUp && dist > 0.1) {
+        rawGesture = "erase";
+      } else if (isPinching) {
+        rawGesture = "draw";
+      } else if (indexUp && !middleUp && dist > 0.08) {
+        // Only Hover if index is clearly isolated and NOT pinching
         rawGesture = "hover";
+      } else if (indexUp && middleUp && !ringUp) {
+        rawGesture = "select";
       }
 
+      // Stability Buffer
       const buf = gestureBufferRef.current;
-      if (rawGesture === buf.gesture) buf.count = Math.min(buf.count + 1, GESTURE_STABILITY_FRAMES + 1);
-      else { buf.gesture = rawGesture; buf.count = 1; }
-      if (buf.count >= GESTURE_STABILITY_FRAMES) confirmedGestureRef.current = rawGesture;
+      if (rawGesture === buf.gesture) {
+        buf.count = Math.min(buf.count + 1, GESTURE_STABILITY_FRAMES + 1);
+      } else {
+        buf.gesture = rawGesture;
+        buf.count = 1;
+      }
+      
+      if (buf.count >= GESTURE_STABILITY_FRAMES) {
+        confirmedGestureRef.current = rawGesture;
+      }
+      
       const gesture = confirmedGestureRef.current;
 
       if (!gestureEnabledRef.current) {
