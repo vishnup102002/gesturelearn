@@ -125,6 +125,14 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("remote-media-update", { sender: socket.id, type, status });
   });
 
+  // Relay gesture drawing events to everyone else in the room
+  socket.on("gesture-draw", ({ roomId, ...payload }) => {
+    if (!roomId) return;
+    const msg = { sender: socket.id, ...payload };
+    // Reliable emit for ALL gesture events (no volatile — prevents dropped packets)
+    socket.to(roomId).emit("gesture-draw", msg);
+  });
+
   socket.on("send-message", ({ roomId, message }) => {
     console.log(`[Chat] Room: ${roomId}, Sender: ${socket.id}, Message: ${message}`);
     io.to(roomId).emit("chat-message", { sender: socket.id, text: message });
@@ -149,6 +157,7 @@ app.get(/^(?!\/socket\.io).*/, (req, res) => {
   }
 });
 
-server.listen(5001, () => {
-  console.log("Server running on http://localhost:5001");
+const PORT = process.env.PORT || 5001;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
