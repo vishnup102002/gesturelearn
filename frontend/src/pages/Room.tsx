@@ -407,18 +407,40 @@ function Room() {
       const allUp = indexUp && middleUp && ringUp && pinkyUp && thumbUp;
       const allDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
 
-      // Distance checking logic for Pinched states
+      // 1. Calculate the 3D Distance (including Z-depth to prevent fake pinches)
       const dx = indexTip.x - thumbTip.x;
       const dy = indexTip.y - thumbTip.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const isPinch = dist < 0.05;
+      const dz = indexTip.z - thumbTip.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
+      // 2. Hysteresis Logic (The "Anti-Jitter" Secret)
+      const PINCH_START_THRESHOLD = 0.04;
+      const PINCH_STOP_THRESHOLD = 0.07;
+      const isCurrentlyDrawing = confirmedGestureRef.current === "draw";
+
+      let isPinch = false;
+      if (isCurrentlyDrawing) {
+        // If already drawing, stay drawing until fingers are clearly apart
+        isPinch = dist < PINCH_STOP_THRESHOLD;
+      } else {
+        // If not drawing, only start when fingers are very close
+        isPinch = dist < PINCH_START_THRESHOLD;
+      }
+
+      // 4. Mode Selection
       let rawGesture = "idle";
-      if (allDown) rawGesture = "fist";
-      else if (allUp) rawGesture = "erase"; // Flat Palm
-      else if (indexUp && middleUp && !ringUp && !pinkyUp) rawGesture = "select"; // Two fingers
-      else if (isPinch) rawGesture = "draw"; // Explicitly pinch to draw
-      else if (indexUp && !isPinch) rawGesture = "hover";
+      if (allDown) {
+        rawGesture = "fist";
+      } else if (allUp) {
+        rawGesture = "erase"; // Flat Palm
+      } else if (indexUp && middleUp && !ringUp && !pinkyUp) {
+        rawGesture = "select"; // Two fingers
+      } else if (isPinch) {
+        rawGesture = "draw"; // Explicitly pinch to draw
+      } else if (indexUp && dist > 0.08) { 
+        // Only hover if the index is up AND not near the thumb
+        rawGesture = "hover";
+      }
 
       const buf = gestureBufferRef.current;
       if (rawGesture === buf.gesture) buf.count = Math.min(buf.count + 1, GESTURE_STABILITY_FRAMES + 1);
