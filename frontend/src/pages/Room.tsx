@@ -403,17 +403,13 @@ function Room() {
       const thumbTip = landmarks[4];
       const indexTip = landmarks[8];
 
-      // 1. Calculate Relative Depth (The "Z-Trigger")
-      // We compare the Index Tip (8) to the Wrist (0)
-      const deltaZ = landmarks[8].z - landmarks[0].z;
-      
-      // Hysteresis for smooth drawing
-      const TOUCH_Z = -0.08; 
-      const RELEASE_Z = -0.06;
-      const isCurrentlyDrawing = confirmedGestureRef.current === "draw";
-      const isTouchingPlane = isCurrentlyDrawing ? deltaZ < RELEASE_Z : deltaZ < TOUCH_Z;
+      const indexMcp = landmarks[5]; // The base of the index finger
 
-      // 2. STATED HIERARCHY (Mutually Exclusive)
+      // 1. Calculate Thumb Extension
+      // We check how far the thumb is from the side of the palm
+      const thumbExtension = Math.abs(thumbTip.x - indexMcp.x);
+
+      // 2. STABLE HIERARCHY (Mutually Exclusive)
       let rawGesture = "idle";
       const allFingersDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
 
@@ -428,12 +424,12 @@ function Room() {
       else if (indexUp && middleUp && !ringUp) {
         rawGesture = "select";
       } 
-      // LASER DRAW: Index is isolated and pushed forward
-      else if (indexUp && !middleUp && isTouchingPlane) {
+      // THUMB OUT = PEN DOWN
+      else if (indexUp && !middleUp && thumbExtension > 0.12) {
         rawGesture = "draw";
       } 
-      // LASER HOVER: Index is isolated but pulled back
-      else if (indexUp && !middleUp && !isTouchingPlane) {
+      // THUMB IN = HOVER
+      else if (indexUp && !middleUp && thumbExtension <= 0.12) {
         rawGesture = "hover";
       }
 
