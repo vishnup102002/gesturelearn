@@ -403,19 +403,27 @@ function Room() {
       const thumbTip = landmarks[4];
       const indexTip = landmarks[8];
 
-      // 1. Precise 3D Distance for Pinch
+      // 1. Calculate Palm Scale (Distance from Wrist to Middle Finger MCP)
+      // This helps us normalize the pinch distance so it works at any range.
+      const palmSize = Math.sqrt(
+        Math.pow(landmarks[0].x - landmarks[9].x, 2) + 
+        Math.pow(landmarks[0].y - landmarks[9].y, 2)
+      );
+
+      // 2. Normalize the Pinch Distance
       const dx = indexTip.x - thumbTip.x;
       const dy = indexTip.y - thumbTip.y;
-      const dz = indexTip.z - thumbTip.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const rawDist = Math.sqrt(dx * dx + dy * dy);
+      const relativeDist = rawDist / palmSize; // Ratio of pinch to hand size
 
-      // 2. State Hysteresis (Prevents flickering)
-      const PINCH_START = 0.035; // Closer to start
-      const PINCH_STOP = 0.065;  // Further to stop
-      const currentlyDrawing = confirmedGestureRef.current === "draw";
-      const isPinching = currentlyDrawing ? dist < PINCH_STOP : dist < PINCH_START;
+      // 3. Hysteresis Thresholds (The "Sweet Spot")
+      const PINCH_THRESHOLD = 0.15; // Start drawing when tips are close
+      const RELEASE_THRESHOLD = 0.22; // Stop drawing when tips are apart
+      
+      const isCurrentlyDrawing = confirmedGestureRef.current === "draw";
+      const isPinching = isCurrentlyDrawing ? relativeDist < RELEASE_THRESHOLD : relativeDist < PINCH_THRESHOLD;
 
-      // ── STRICT MODE SELECTION (Mutually Exclusive) ────────────────────────
+      // 4. THE GESTURE HIERARCHY (Simplified & Bulletproof)
       let rawGesture = "idle";
       
       const allFingersDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
@@ -423,22 +431,18 @@ function Room() {
       if (allFingersDown) {
         rawGesture = "fist";
       } 
-      // 1. ERASE: All 4 main fingers must be up
-      else if (indexUp && middleUp && ringUp && pinkyUp) {
-        rawGesture = "erase";
+      else if (isPinching) {
+        // If the tips are touching, DRAWING TAKES TOTAL PRIORITY
+        rawGesture = "draw";
       } 
-      // 2. SELECT: Index and Middle ONLY
       else if (indexUp && middleUp && !ringUp) {
         rawGesture = "select";
       } 
-      // 3. DRAW: Priority Pinch check (Middle finger MUST be down)
-      // This prevents the "Peace sign" from triggering a draw
-      else if (isPinching && !middleUp) {
-        rawGesture = "draw";
-      } 
-      // 4. HOVER: Index ONLY (Middle MUST be down)
-      else if (indexUp && !middleUp && dist > 0.08) {
+      else if (indexUp && !middleUp) {
         rawGesture = "hover";
+      } 
+      else if (indexUp && middleUp && ringUp && pinkyUp) {
+        rawGesture = "erase";
       }
 
       // Update stability buffer
