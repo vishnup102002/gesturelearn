@@ -415,39 +415,44 @@ function Room() {
       const currentlyDrawing = confirmedGestureRef.current === "draw";
       const isPinching = currentlyDrawing ? dist < PINCH_STOP : dist < PINCH_START;
 
-      // 3. Strict Mode Selection
+      // ── STRICT MODE SELECTION (Mutually Exclusive) ────────────────────────
       let rawGesture = "idle";
       
       const allFingersDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
-      const allFingersUp = indexUp && middleUp && ringUp && pinkyUp;
 
       if (allFingersDown) {
         rawGesture = "fist";
-      } else if (allFingersUp && dist > 0.1) {
+      } 
+      // 1. ERASE: All 4 main fingers must be up
+      else if (indexUp && middleUp && ringUp && pinkyUp) {
         rawGesture = "erase";
-      } else if (isPinching) {
-        rawGesture = "draw";
-      } else if (indexUp && !middleUp && dist > 0.08) {
-        // Only Hover if index is clearly isolated and NOT pinching
-        rawGesture = "hover";
-      } else if (indexUp && middleUp && !ringUp) {
+      } 
+      // 2. SELECT: Index and Middle ONLY
+      else if (indexUp && middleUp && !ringUp) {
         rawGesture = "select";
+      } 
+      // 3. DRAW: Priority Pinch check
+      else if (isPinching) {
+        rawGesture = "draw";
+      } 
+      // 4. HOVER: Index ONLY (Middle MUST be down)
+      else if (indexUp && !middleUp && dist > 0.08) {
+        rawGesture = "hover";
       }
 
-      // Stability Buffer
+      // Update stability buffer
       const buf = gestureBufferRef.current;
-      if (rawGesture === buf.gesture) {
-        buf.count = Math.min(buf.count + 1, GESTURE_STABILITY_FRAMES + 1);
-      } else {
-        buf.gesture = rawGesture;
-        buf.count = 1;
-      }
+      if (rawGesture === buf.gesture) buf.count = Math.min(buf.count + 1, GESTURE_STABILITY_FRAMES + 1);
+      else { buf.gesture = rawGesture; buf.count = 1; }
       
-      if (buf.count >= GESTURE_STABILITY_FRAMES) {
-        confirmedGestureRef.current = rawGesture;
-      }
-      
+      if (buf.count >= GESTURE_STABILITY_FRAMES) confirmedGestureRef.current = rawGesture;
       const gesture = confirmedGestureRef.current;
+
+      // ── CRITICAL FIX: Reset drawing state if not in draw mode ──────────────
+      if (gesture !== "draw") {
+        lastDrawPosRef.current = null;
+        smoothedTipRef.current = null;
+      }
 
       if (!gestureEnabledRef.current) {
         lastDrawPosRef.current = null;
