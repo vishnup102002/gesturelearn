@@ -1,0 +1,23 @@
+name: GestureLearn CI Pipeline
+
+# This tells GitHub to run this script every time you push to the 'main' branch
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Grab your latest code from GitHub
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    # 2. Build the Docker container just to prove it compiles successfully
+    - name: Test Docker Build
+      run: |
+        cd backend
+        docker build -t gesturelearn-backend .
+        
+    # 3. (Optional) In the future, you can add 'npm test' here!
