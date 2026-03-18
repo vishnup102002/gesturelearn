@@ -44,8 +44,8 @@ function Room() {
 
   const gestureBufferRef = useRef({ gesture: "idle", count: 0 });
   const confirmedGestureRef = useRef("idle");
-  const lastPalmToggleRef = useRef(0);
-  const gestureEnabledRef = useRef(false);
+  const lastFistTimeRef = useRef(0);
+  const gestureEnabledRef = useRef(true);
 
   const drawThicknessRef = useRef(2);
   const eraseThicknessRef = useRef(30);
@@ -400,17 +400,25 @@ function Room() {
       const pinkyUp = fingerUp(20, 18);
       const thumbTip = landmarks[4];
       const thumbIp = landmarks[3];
+      const indexTip = landmarks[8];
       const wrist = landmarks[0];
       const thumbUp = Math.abs(thumbTip.x - wrist.x) > Math.abs(thumbIp.x - wrist.x) + 0.02;
 
       const allUp = indexUp && middleUp && ringUp && pinkyUp && thumbUp;
       const allDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
 
+      // Distance checking logic for Pinched states
+      const dx = indexTip.x - thumbTip.x;
+      const dy = indexTip.y - thumbTip.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const isPinch = dist < 0.05;
+
       let rawGesture = "idle";
       if (allDown) rawGesture = "fist";
-      else if (allUp) rawGesture = "palm";
-      else if (indexUp && middleUp && !ringUp && !pinkyUp) rawGesture = "erase";
-      else if (indexUp && !middleUp && !ringUp && !pinkyUp) rawGesture = "draw";
+      else if (allUp) rawGesture = "erase"; // Flat Palm
+      else if (indexUp && middleUp && !ringUp && !pinkyUp) rawGesture = "select"; // Two fingers
+      else if (isPinch) rawGesture = "draw"; // Explicitly pinch to draw
+      else if (indexUp && !isPinch) rawGesture = "hover";
 
       const buf = gestureBufferRef.current;
       if (rawGesture === buf.gesture) buf.count = Math.min(buf.count + 1, GESTURE_STABILITY_FRAMES + 1);
@@ -418,62 +426,81 @@ function Room() {
       if (buf.count >= GESTURE_STABILITY_FRAMES) confirmedGestureRef.current = rawGesture;
       const gesture = confirmedGestureRef.current;
 
-      // Palm toggle
-      if (gesture === "palm") {
+      if (!gestureEnabledRef.current) {
+        lastDrawPosRef.current = null;
+        smoothedTipRef.current = null;
+        lastFistTimeRef.current = 0;
+        document.getElementById("hover-cursor")?.style.setProperty("display", "none");
+        return;
+      }
+
+      // Buffer loop for a sustained FIST (Clear Screen)
+      if (gesture === "fist") {
+        document.getElementById("hover-cursor")?.style.setProperty("display", "none");
         const now = performance?.now?.() ?? Date.now();
-        if (now - lastPalmToggleRef.current > PALM_TOGGLE_COOLDOWN_MS) {
-          lastPalmToggleRef.current = now;
-          const wasEnabled = gestureEnabledRef.current;
-          setGestureEnabled(p => !p);
-          setGestureStatusThrottled(wasEnabled ? "🖐️ Drawing OFF" : "🖐️ Drawing ON", { force: true });
+        if (!lastFistTimeRef.current) lastFistTimeRef.current = now;
+        if (now - lastFistTimeRef.current > 2000) {
+          if (ctx) ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+          emitGestureEvent("eraseAll", null, null);
+          setGestureStatusThrottled("🗑️ Canvas cleared", { force: true });
+          lastFistTimeRef.current = now; // reset after clear
+        } else {
+          setGestureStatusThrottled("✊ Hold to clear...", { force: true, minIntervalMs: 50 });
         }
         lastDrawPosRef.current = null;
         smoothedTipRef.current = null;
         return;
+      } else {
+        lastFistTimeRef.current = 0;
       }
 
-      if (!gestureEnabledRef.current) {
+      if (gesture === "idle") {
+        document.getElementById("hover-cursor")?.style.setProperty("display", "none");
+        setGestureStatusThrottled("Idle", { minIntervalMs: 250 });
         lastDrawPosRef.current = null;
         smoothedTipRef.current = null;
         return;
       }
 
-      if (gesture === "fist" || gesture === "idle") {
-        setGestureStatusThrottled(gesture === "fist" ? "✊ Move mode" : "Idle", { minIntervalMs: 250 });
-        lastDrawPosRef.current = null;
-        smoothedTipRef.current = null;
-        return;
-      }
-
-      // Pinch → erase size
+      // Pinch -> erase size logic applies differently now. (Erase is just Flat Palm).
+      // We lock the erase size proportionally to hand scaling, but static works for palm:
       if (gesture === "erase") {
-        const middleTip = landmarks[12];
-        const dx = middleTip.x - thumbTip.x, dy = middleTip.y - thumbTip.y;
-        let t = (Math.sqrt(dx * dx + dy * dy) - 0.03) / 0.15;
-        t = Math.max(0, Math.min(1, t));
-        eraseThicknessRef.current = MIN_ERASE_THICKNESS + (MAX_ERASE_THICKNESS - MIN_ERASE_THICKNESS) * t;
+         eraseThicknessRef.current = 60; // Huge flat palm footprint
       }
 
-      // Smooth raw (un-flipped) index fingertip coords
-      const indexTip = landmarks[8];
-      const rawX = indexTip.x, rawY = indexTip.y;
-      if (!smoothedTipRef.current) smoothedTipRef.current = { x: rawX, y: rawY };
+      // Ensure cursor aligns smoothly with user's tracking midpoint 
+      const targetX = (gesture === "draw") ? (indexTip.x + thumbTip.x) / 2 : indexTip.x;
+      const targetY = (gesture === "draw") ? (indexTip.y + thumbTip.y) / 2 : indexTip.y;
+
+      if (!smoothedTipRef.current) smoothedTipRef.current = { x: targetX, y: targetY };
       else {
         const p = smoothedTipRef.current;
         smoothedTipRef.current = {
-          x: SMOOTHING_ALPHA * rawX + (1 - SMOOTHING_ALPHA) * p.x,
-          y: SMOOTHING_ALPHA * rawY + (1 - SMOOTHING_ALPHA) * p.y,
+          x: SMOOTHING_ALPHA * targetX + (1 - SMOOTHING_ALPHA) * p.x,
+          y: SMOOTHING_ALPHA * targetY + (1 - SMOOTHING_ALPHA) * p.y,
         };
       }
 
       const rawNormX = smoothedTipRef.current.x;  // in raw-frame space
       const rawNormY = smoothedTipRef.current.y;
-
-      // Flipped coord: this is what we store/draw/emit everywhere
       const emitNormX = 1.0 - rawNormX;
       const emitNormY = rawNormY;
 
-      if (gesture === "draw") {
+      // Handle custom DOM Hover Cursor presentation seamlessly overlaying video feed
+      const cursorEl = document.getElementById("hover-cursor");
+      if (cursorEl && canvasEl) {
+        if (gesture === "hover" || gesture === "select") {
+          const hc = normFlippedToCanvas(canvasEl, emitNormX, emitNormY, rawVideoElRef.current);
+          cursorEl.style.display = "block";
+          cursorEl.style.left = `${hc.x}px`;
+          cursorEl.style.top = `${hc.y}px`;
+          setGestureStatusThrottled(gesture === "select" ? "✌️ Select Mode" : "👉 Hover Mode", { minIntervalMs: 200 });
+        } else {
+          cursorEl.style.display = "none";
+        }
+      }
+
+      if (gesture === "select" || gesture === "hover" || gesture === "draw") {
         // ── Palette hit detection ──────────────────────────────────────
         // Use emitNormX (flipped) to map onto the flipped canvas overlay
         const paletteEl = canvasEl?.parentElement?.querySelector(".gesture-palette");
@@ -642,6 +669,13 @@ function Room() {
             {pinnedId === "local" && gestureEnabled && (
               <>
                 <canvas ref={gestureCanvasRef} style={overlayCanvasStyle} />
+                <div id="hover-cursor" style={{
+                  position: "absolute", width: "16px", height: "16px",
+                  borderRadius: "50%", backgroundColor: "rgba(255, 255, 255, 0.4)", border: "2px solid #fff",
+                  pointerEvents: "none", zIndex: 100, display: "none",
+                  transform: "translate(-50%, -50%)", 
+                  boxShadow: "0 0 10px rgba(0,0,0,0.5)"
+                }} />
                 <div className="gesture-palette">
                   {COLOR_OPTIONS.map(color => (
                     <button
