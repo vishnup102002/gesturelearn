@@ -12,3 +12,6 @@ Allow: /
 
 User-agent: *
 Allow: /
+
+# Direct link to your sitemap
+Sitemap: https://gesturelearn.vercel.app/sitemap.xml
