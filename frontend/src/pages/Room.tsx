@@ -403,57 +403,48 @@ function Room() {
       const thumbTip = landmarks[4];
       const indexTip = landmarks[8];
 
-      // 1. Calculate Palm Scale (Distance from Wrist to Middle Finger MCP)
-      // This helps us normalize the pinch distance so it works at any range.
-      const palmSize = Math.sqrt(
-        Math.pow(landmarks[0].x - landmarks[9].x, 2) + 
-        Math.pow(landmarks[0].y - landmarks[9].y, 2)
-      );
-
-      // 2. Normalize the Pinch Distance
-      const dx = indexTip.x - thumbTip.x;
-      const dy = indexTip.y - thumbTip.y;
-      const rawDist = Math.sqrt(dx * dx + dy * dy);
-      const relativeDist = rawDist / palmSize; // Ratio of pinch to hand size
-
-      // 3. Hysteresis Thresholds (The "Sweet Spot")
-      const PINCH_THRESHOLD = 0.15; // Start drawing when tips are close
-      const RELEASE_THRESHOLD = 0.22; // Stop drawing when tips are apart
+      // 1. Calculate Relative Depth (The "Z-Trigger")
+      // We compare the Index Tip (8) to the Wrist (0)
+      const deltaZ = landmarks[8].z - landmarks[0].z;
       
+      // Hysteresis for smooth drawing
+      const TOUCH_Z = -0.08; 
+      const RELEASE_Z = -0.06;
       const isCurrentlyDrawing = confirmedGestureRef.current === "draw";
-      const isPinching = isCurrentlyDrawing ? relativeDist < RELEASE_THRESHOLD : relativeDist < PINCH_THRESHOLD;
+      const isTouchingPlane = isCurrentlyDrawing ? deltaZ < RELEASE_Z : deltaZ < TOUCH_Z;
 
-      // 4. THE GESTURE HIERARCHY (Simplified & Bulletproof)
+      // 2. STATED HIERARCHY (Mutually Exclusive)
       let rawGesture = "idle";
-      
       const allFingersDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
 
       if (allFingersDown) {
         rawGesture = "fist";
       } 
-      else if (isPinching) {
-        // If the tips are touching, DRAWING TAKES TOTAL PRIORITY
-        rawGesture = "draw";
+      // ERASE: 3+ fingers extended
+      else if (indexUp && middleUp && ringUp && pinkyUp) {
+        rawGesture = "erase";
       } 
+      // SELECT: Peace sign (Index + Middle)
       else if (indexUp && middleUp && !ringUp) {
         rawGesture = "select";
       } 
-      else if (indexUp && !middleUp) {
-        rawGesture = "hover";
+      // LASER DRAW: Index is isolated and pushed forward
+      else if (indexUp && !middleUp && isTouchingPlane) {
+        rawGesture = "draw";
       } 
-      else if (indexUp && middleUp && ringUp && pinkyUp) {
-        rawGesture = "erase";
+      // LASER HOVER: Index is isolated but pulled back
+      else if (indexUp && !middleUp && !isTouchingPlane) {
+        rawGesture = "hover";
       }
 
-      // Update stability buffer
+      // Update confirmed gesture with frame stability
       const buf = gestureBufferRef.current;
       if (rawGesture === buf.gesture) buf.count = Math.min(buf.count + 1, GESTURE_STABILITY_FRAMES + 1);
       else { buf.gesture = rawGesture; buf.count = 1; }
-      
       if (buf.count >= GESTURE_STABILITY_FRAMES) confirmedGestureRef.current = rawGesture;
       const gesture = confirmedGestureRef.current;
 
-      // ── CRITICAL FIX: Reset drawing state if not in draw mode ──────────────
+      // 3. GHOST LINE PROTECTION: Clear memory when not drawing
       if (gesture !== "draw") {
         lastDrawPosRef.current = null;
         smoothedTipRef.current = null;
@@ -501,9 +492,9 @@ function Room() {
          eraseThicknessRef.current = 60; // Huge flat palm footprint
       }
 
-      // Ensure cursor aligns smoothly with user's tracking midpoint 
-      const targetX = (gesture === "draw") ? (indexTip.x + thumbTip.x) / 2 : indexTip.x;
-      const targetY = (gesture === "draw") ? (indexTip.y + thumbTip.y) / 2 : indexTip.y;
+      // Ensure cursor aligns smoothly with user's tracking index tip 
+      const targetX = indexTip.x;
+      const targetY = indexTip.y;
 
       if (!smoothedTipRef.current) smoothedTipRef.current = { x: targetX, y: targetY };
       else {
