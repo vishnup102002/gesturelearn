@@ -2,6 +2,7 @@ services:
   - type: web
     name: gesturelearn
     env: node
+    plan: free
     buildCommand: "cd backend && npm install && cd ../frontend && npm install && npm run build"
     startCommand: "cd backend && node server.js"
     envVars:
