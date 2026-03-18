@@ -431,8 +431,9 @@ function Room() {
       else if (indexUp && middleUp && !ringUp) {
         rawGesture = "select";
       } 
-      // 3. DRAW: Priority Pinch check
-      else if (isPinching) {
+      // 3. DRAW: Priority Pinch check (Middle finger MUST be down)
+      // This prevents the "Peace sign" from triggering a draw
+      else if (isPinching && !middleUp) {
         rawGesture = "draw";
       } 
       // 4. HOVER: Index ONLY (Middle MUST be down)
