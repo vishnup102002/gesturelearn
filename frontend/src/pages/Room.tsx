@@ -400,37 +400,46 @@ function Room() {
       const ringUp = isFingerUp(16, 14, 13);
       const pinkyUp = isFingerUp(20, 18, 17);
       
+      // 1. Get Landmarks
       const thumbTip = landmarks[4];
       const indexTip = landmarks[8];
+      const indexMcp = landmarks[5]; // Knuckle
+      const middleTip = landmarks[12];
 
-      const indexMcp = landmarks[5]; // The base of the index finger
+      // 2. PHYSICAL SHAPE RULES (No complex math)
+      
+      // RULE A: PINCH (Hover) 
+      // Fingers are physically overlapping from the camera's view
+      const isPinch = Math.abs(indexTip.x - thumbTip.x) < 0.04 && 
+                      Math.abs(indexTip.y - thumbTip.y) < 0.04;
 
-      // 1. Calculate Thumb Extension
-      // We check how far the thumb is from the side of the palm
-      const thumbExtension = Math.abs(thumbTip.x - indexMcp.x);
+      // RULE B: L-SHAPE (Draw) 
+      // Index is pointing up AND thumb is stretched away from the palm
+      const thumbIsOut = Math.abs(thumbTip.x - indexMcp.x) > 0.10;
+      const indexIsUp = indexTip.y < landmarks[6].y;
+      const middleIsDown = middleTip.y > landmarks[10].y;
+      const isLShape = indexIsUp && thumbIsOut && middleIsDown;
 
-      // 2. STABLE HIERARCHY (Mutually Exclusive)
+      // 3. THE "PHYSICAL" STATE MACHINE
       let rawGesture = "idle";
       const allFingersDown = !indexUp && !middleUp && !ringUp && !pinkyUp;
 
       if (allFingersDown) {
         rawGesture = "fist";
       } 
-      // ERASE: 3+ fingers extended
       else if (indexUp && middleUp && ringUp && pinkyUp) {
-        rawGesture = "erase";
-      } 
-      // SELECT: Peace sign (Index + Middle)
-      else if (indexUp && middleUp && !ringUp) {
-        rawGesture = "select";
-      } 
-      // THUMB OUT = PEN DOWN
-      else if (indexUp && !middleUp && thumbExtension > 0.12) {
+        rawGesture = "erase"; // Flat Palm ERASER
+      }
+      else if (isLShape) {
+        // PHYSICAL "GUN" SHAPE = DRAW
         rawGesture = "draw";
       } 
-      // THUMB IN = HOVER
-      else if (indexUp && !middleUp && thumbExtension <= 0.12) {
+      else if (isPinch) {
+        // PHYSICAL TOUCH = HOVER (STOP DRAWING)
         rawGesture = "hover";
+      } 
+      else if (indexUp && middleUp && !ringUp) {
+        rawGesture = "select";
       }
 
       // Update confirmed gesture with frame stability
@@ -440,7 +449,8 @@ function Room() {
       if (buf.count >= GESTURE_STABILITY_FRAMES) confirmedGestureRef.current = rawGesture;
       const gesture = confirmedGestureRef.current;
 
-      // 3. GHOST LINE PROTECTION: Clear memory when not drawing
+      // 4. THE CLEAN BREAK (Immediate Memory Flush)
+      // The moment the mode breaks, the line MUST stop.
       if (gesture !== "draw") {
         lastDrawPosRef.current = null;
         smoothedTipRef.current = null;
