@@ -612,12 +612,25 @@ function Room() {
     });
 
     let rafId, cancelled = false;
+    const mpCanvas = document.createElement("canvas");
+    const mpCtx = mpCanvas.getContext("2d", { willReadFrequently: true });
+
     const processFrame = async () => {
       if (cancelled) return;
       const v = rawVideoElRef.current;
       const now = performance?.now?.() ?? Date.now();
       if (v && v.readyState >= 2 && v.videoWidth > 0 && now - lastHandsSendRef.current >= 16) {
-        try { lastHandsSendRef.current = now; await hands.send({ image: v }); } catch { }
+        try { 
+          lastHandsSendRef.current = now; 
+          if (mpCanvas.width !== v.videoWidth || mpCanvas.height !== v.videoHeight) {
+            mpCanvas.width = v.videoWidth;
+            mpCanvas.height = v.videoHeight;
+          }
+          mpCtx.drawImage(v, 0, 0);
+          await hands.send({ image: mpCanvas }); 
+        } catch (err) { 
+          console.error("Mediapipe send error:", err);
+        }
       }
       rafId = requestAnimationFrame(processFrame);
     };
