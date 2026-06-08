@@ -1,73 +1,66 @@
-# Welcome to your Lovable project
+# 🌌 GestureLearn Frontend Client
 
-## Project info
+[![Vite Build](https://img.shields.io/badge/Vite-5.4.19-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![React Version](https://img.shields.io/badge/React-18.3.1-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4.17-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
+[![MediaPipe Hands](https://img.shields.io/badge/MediaPipe-Hands-0288D1?style=for-the-badge&logo=google&logoColor=white)](https://google.github.io/mediapipe/solutions/hands.html)
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+This directory contains the React application for the **GestureLearn** frontend client.
 
-## How can I edit this code?
+> [!NOTE]
+> For the complete system architecture, WebRTC signaling mechanics, coordinate mapping equations, and deployment workflows, please refer to the **[Root README](../README.md)**.
 
-There are several ways of editing your application.
+---
 
-**Use Lovable**
+## 🛠️ Tech Stack & Key Libraries
+* **Build System & Bundler**: Vite (using `@vitejs/plugin-react-swc` for ultra-fast compilation)
+* **Application Library**: React 18 + TypeScript (enforcing strong typing across peer connections and landmark models)
+* **Computer Vision Inference**: Google MediaPipe Hands (`@mediapipe/hands`) loaded via WebAssembly CDN
+* **Real-time Networking**: `socket.io-client` for peer signaling and gesture data relays
+* **Video/Audio Protocol**: Native browser WebRTC (`RTCPeerConnection`)
+* **Styling**: Tailwind CSS + `shadcn-ui` (Radix UI primitives) + Cyberpunk glassmorphism layout
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## 🚀 Client Setup & Commands
 
-**Use your preferred IDE**
+### Prerequisites
+Make sure you have Node.js and a package manager (npm or bun) installed.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+### 1. Environment Variable Setup
+Ensure you configure the signaling server endpoint by creating a `.env` file in this folder:
+```env
+VITE_SIGNALING_SERVER=http://localhost:5001
 ```
 
-**Edit a file directly in GitHub**
+### 2. Install Dependencies
+```bash
+npm install
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### 3. Start Development Server
+```bash
+npm run dev
+```
+Starts the Vite dev server locally at `http://localhost:8080` (or the next available port) with hot module replacement (HMR).
 
-**Use GitHub Codespaces**
+### 4. Build for Production
+```bash
+npm run build
+```
+Compiles and bundles the application to the `/build` directory. The production Express server inside `../backend/server.js` is configured to serve static assets directly from this folder.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### 5. Run Linter
+```bash
+npm run lint
+```
+Runs ESLint to enforce code quality guidelines.
 
-## What technologies are used for this project?
+---
 
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## 📂 Key File Map
+* [App.tsx](file:///Users/vishnup/Desktop/gesturelearn/frontend/src/App.tsx): Client Router and Context Providers.
+* [pages/Index.tsx](file:///Users/vishnup/Desktop/gesturelearn/frontend/src/pages/Index.tsx): Neon-glowing home dashboard for initiating/joining learning rooms.
+* [pages/Room.tsx](file:///Users/vishnup/Desktop/gesturelearn/frontend/src/pages/Room.tsx): Core container managing getUserMedia camera feeds, canvas mirror translations, MediaPipe Hand inference loops, WebRTC RTCPeerConnections, and Socket.io channel routing.
+* [pages/Room.css](file:///Users/vishnup/Desktop/gesturelearn/frontend/src/pages/Room.css): Dark room UI layout classes, styling for participants' video feeds, glow cards, and floating color palettes.
+* [components/GlowCanvas.tsx](file:///Users/vishnup/Desktop/gesturelearn/frontend/src/components/GlowCanvas.tsx): Custom interactive canvas background rendering trailing particle effects on pointer movement.
