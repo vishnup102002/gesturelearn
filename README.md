@@ -1,4 +1,4 @@
-<img width="60" height="60" alt="image" src="https://github.com/user-attachments/assets/d10d80ee-62ca-4ea4-a001-0c2e3cb8cbf3" align="left" />
+<img width="30" height="30" alt="image" src="https://github.com/user-attachments/assets/d10d80ee-62ca-4ea4-a001-0c2e3cb8cbf3" align="left" />
 
 # GestureLearn
 <br clear="left"/>
