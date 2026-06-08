@@ -1,5 +1,4 @@
-<img width="1233" height="848" alt="image" src="https://github.com/user-attachments/assets/86770059-d023-4943-a757-e8e77042a345" />#  <img width="1233" height="848" alt="image" src="https://github.com/user-attachments/assets/d10d80ee-62ca-4ea4-a001-0c2e3cb8cbf3" />
-GestureLearn
+ <img width="20" height="20" alt="image" src="https://github.com/user-attachments/assets/d10d80ee-62ca-4ea4-a001-0c2e3cb8cbf3" /> GestureLearn
 
 [![Live Demo](https://img.shields.io/badge/Demo-Live%20on%20Vercel-00E5FF?style=for-the-badge&logo=vercel&logoColor=white)](https://gesturelearn.vercel.app/)
 [![React Version](https://img.shields.io/badge/React-18.3.1-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
