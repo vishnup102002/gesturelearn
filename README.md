@@ -43,7 +43,7 @@ The local camera frame feed is continuously routed through a physical state mach
 
 GestureLearn uses a decoupled, modular design divided into an **Express / Socket.io server** (orchestrator) and a **Vite / React client** (inference and rendering engine).
 
-### ⚡ Architecture Workflow
+### ⚡ End-to-End Pipeline & Architecture Workflow
 ![GestureLearn System Architecture Pipeline](./docs/architecture-pipeline.svg)
 
 ```mermaid
